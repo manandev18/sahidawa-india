@@ -197,10 +197,8 @@ export interface LasaCheckResult {
 }
 
 export async function checkLasaConflicts(medicineName: string): Promise<LasaCheckResult> {
-    const res = await fetchWithRetry(`${API_BASE}/api/v1/lasa/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ medicineName }),
+    const res = await fetchWithRetry(`${API_BASE}/api/v1/lasa/check?medicine=${encodeURIComponent(medicineName)}`, {
+        method: "GET",
         timeout: 8000,
     });
 

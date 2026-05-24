@@ -107,6 +107,14 @@ function LoadingSkeleton({ ocrStatus, ocrProgress }: { ocrStatus: string; ocrPro
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md">
+            {showLasaConfirmation && lasaMatches.length > 0 && pendingVerifyResult && (
+                <LasaConfirmation
+                    matches={lasaMatches}
+                    scannedName={pendingVerifyResult.medicine?.brand_name || parsedBrand}
+                    onConfirmScanned={handleConfirmScanned}
+                    onSelectConflict={handleSelectConflict}
+                />
+            )}
             <div className="relative w-full max-w-sm overflow-hidden rounded-[2.5rem] bg-white p-8 text-slate-900 shadow-2xl">
                 <Skeleton className="absolute top-0 right-0 left-0 h-2 rounded-none bg-emerald-500" />
                 <div className="flex flex-col items-center space-y-4 text-center">
