@@ -38,6 +38,10 @@ ocr_loaded = include_router_if_available(app, "routers.ocr", required=False)
 if not ocr_loaded:
     logger.warning("OCR routes are disabled in this runtime.")
 
+tts_loaded = include_router_if_available(app, "routers.tts", required=False)
+if not tts_loaded:
+    logger.warning("TTS routes are disabled — google-cloud-texttospeech or credentials may be missing.")
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to SahiDawa ML API"}

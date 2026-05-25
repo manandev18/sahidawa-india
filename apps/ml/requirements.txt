@@ -29,3 +29,6 @@ numpy>=1.26.0
 
 # Load testing
 locust>=2.31.8
+
+# TTS (Text-to-Speech)
+google-cloud-texttospeech>=2.16.0   # Google Cloud TTS

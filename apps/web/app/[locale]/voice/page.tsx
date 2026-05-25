@@ -184,6 +184,8 @@ export default function VoiceTriagePage() {
     const mainRef = useRef<HTMLElement | null>(null);
     const ttsFallbackNoticeKeyRef = useRef("");
     const panelRef = useRef<HTMLDivElement | null>(null);
+    /** Holds the active HTML5 Audio element used for cloud TTS playback. */
+    const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
     const workflowLanguageCode = resolveVoiceWorkflowLanguage(
         sessionLanguageRef.current,
@@ -278,6 +280,11 @@ export default function VoiceTriagePage() {
             clearAudioStream();
             if (typeof window !== "undefined") {
                 stopSpeaking(window);
+            }
+            // Also stop any active cloud TTS audio
+            if (audioElementRef.current) {
+                audioElementRef.current.pause();
+                audioElementRef.current = null;
             }
         };
     }, []);
@@ -648,19 +655,74 @@ export default function VoiceTriagePage() {
         }
     }
 
-    function handleReplaySummary() {
+    /**
+     * Speaks the triage summary using AWS Polly (cloud TTS) as the primary
+     * source. If the cloud request fails for any reason the function falls
+     * back gracefully to the browser's native SpeechSynthesis API.
+     */
+    async function handleReplaySummary() {
         if (typeof window === "undefined" || !result?.summary) {
             return;
         }
 
+        // Stop any currently playing audio before starting a new utterance
+        handleStopSpeaking();
+
+        const summaryText = result.summary;
+        const languageCode = resultLanguageOption.value;
+
+        // ── Primary: AWS Polly via our secure Next.js proxy ───────────────────
+        try {
+            setIsSpeaking(true);
+
+            const response = await fetch("/api/voice/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: summaryText, language_code: languageCode }),
+                signal: AbortSignal.timeout(15_000),
+            });
+
+            if (!response.ok) {
+                // Polly unavailable — fall through to browser TTS below
+                throw new Error(`TTS proxy returned ${response.status}`);
+            }
+
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audioElementRef.current = audio;
+
+            audio.onended = () => {
+                URL.revokeObjectURL(audioUrl);
+                audioElementRef.current = null;
+                setIsSpeaking(false);
+            };
+
+            audio.onerror = () => {
+                URL.revokeObjectURL(audioUrl);
+                audioElementRef.current = null;
+                setIsSpeaking(false);
+                // Silent — the user already sees the text result
+            };
+
+            await audio.play();
+            return; // Cloud TTS succeeded — skip browser fallback
+        } catch {
+            // Cloud TTS failed — clean up and fall through to browser TTS
+            if (audioElementRef.current) {
+                audioElementRef.current.pause();
+                audioElementRef.current = null;
+            }
+            setIsSpeaking(false);
+        }
+
+        // ── Fallback: native browser SpeechSynthesis ──────────────────────────
         if (!supportsSpeechSynthesis(window)) {
             toast.error(t("tts_not_supported"));
             return;
         }
 
-        stopSpeaking(window);
-
-        const utterance = new SpeechSynthesisUtterance(result.summary);
+        const utterance = new SpeechSynthesisUtterance(summaryText);
         utterance.lang = resultLanguageOption.speechSynthesisLang;
         const voiceMatch = resolveSpeechSynthesisVoice(
             window,
@@ -671,16 +733,15 @@ export default function VoiceTriagePage() {
             utterance.voice = voiceMatch.voice;
         }
 
-        if (voiceMatch.supportLevel === "fallback") {
-            const fallbackNoticeKey = `${resultLanguageOption.value}:${result.summary}`;
-            if (ttsFallbackNoticeKeyRef.current !== fallbackNoticeKey) {
-                ttsFallbackNoticeKeyRef.current = fallbackNoticeKey;
-                toast.warning(
-                    t("tts_fallback_message", {
-                        language: resultLanguageOption.label,
-                    })
-                );
-            }
+        // Notify the user that the browser voice quality may be limited
+        const fallbackNoticeKey = `${resultLanguageOption.value}:${summaryText}`;
+        if (ttsFallbackNoticeKeyRef.current !== fallbackNoticeKey) {
+            ttsFallbackNoticeKeyRef.current = fallbackNoticeKey;
+            toast.warning(
+                t("tts_fallback_message", {
+                    language: resultLanguageOption.label,
+                })
+            );
         }
 
         utterance.onstart = () => setIsSpeaking(true);
@@ -691,6 +752,12 @@ export default function VoiceTriagePage() {
     }
 
     function handleStopSpeaking() {
+        // Stop cloud TTS audio element if active
+        if (audioElementRef.current) {
+            audioElementRef.current.pause();
+            audioElementRef.current = null;
+        }
+        // Stop native browser TTS if active
         if (typeof window !== "undefined") {
             stopSpeaking(window);
         }
